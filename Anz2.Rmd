@@ -1,0 +1,114 @@
+---
+title: "Predictive Analytics ANZ"
+author: "Krutarth Patel"
+date: "21/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r import data, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(corrplot)
+library(dplyr)
+library(esquisse)
+library(caret)
+data <- read_excel("C:/Users/barkh/Downloads/ANZ synthesised transaction dataset.xlsx")
+str(data)
+```
+
+
+```{r salary, echo=TRUE}
+salary <- data %>% filter(txn_description == 'PAY/SALARY') %>% group_by(customer_id) %>% summarise(salary_91days=sum(amount))
+salary %>% mutate(annual_salary = (salary_91days/91)*365) -> salary
+hist(salary$annual_salary[!is.na(salary$annual_salary)],breaks=c(seq(27000,150000,by = 10000)),
+ main = "Histogram for annual salary of customers", xlab= 'Income($)AUD')
+```
+
+***Comments on Code chunk:*** *In the first line, I have created the data frame called* `salary` *which has two columns of* `Unique customer ID` *and the* `salary` *(filtered from the txn_description = pay/salary) also salary is summed together along with each unique customer Id hence the data frame's shape is* `(100,2)`.
+*In the second line, I have created the third column in salary data frame called `annual`.The new column has the annual salary scaled on the basis of 91 days salary data provided in the original data set.*
+
+***Comments on Statistical inference:*** *First of all we are assuming that the consistency of the scaled annual salary is constant and there is no major difference in actual annual salary of each customer for instance, it could be changed in the scenario if any customer finds a good role which pays more than previous role than we have a problem in the annual scaled salary hence we are assuming the salary is constant annualy which may have significant effect in  the further inference.* 
+
+***Upon looking at the histogram we can see there exist some degree of skewness which is not significant but still have to consider it while predicting annual salary.*** 
+
+```{r segmentation, echo=TRUE}
+join <- merge(data, salary, by.x = "customer_id", by.y = "customer_id",all.x= TRUE, all.y = FALSE)
+transactions <-  data %>% filter(movement == 'debit') %>% group_by(customer_id) %>% summarise(debit_count_in91days=n(),spendings=sum(amount))
+data2 <- merge(salary,transactions,by.x = "customer_id", by.y = "customer_id",all.x= TRUE, all.y = FALSE)
+transaction <- data %>% group_by(customer_id) %>% summarise(balance=mean(balance),age=unique(age),gender=unique(gender))
+final <- merge(data2,transaction,by.x = "customer_id",by.y = "customer_id",all.x = TRUE,all.y = FALSE)
+M <- cor(final[3:7])
+corrplot(M, method="color")
+```
+```{r}
+p1 <- ggplot(join) +
+  aes(x = age, y = annual_salary) +
+  geom_point(
+    size = 2.0,
+    colour = "#EF562D"
+  ) +
+  geom_smooth(method='lm', formula= y~x) +
+  theme_classic() 
+
+p2 <- ggplot(final) +
+  aes(x = spendings, y = annual_salary, colour = gender) +
+  geom_point(shape = "circle", size = 1.5) +
+  scale_color_manual(
+    values = list(
+      F = "#F8766D",
+      M = "#FF61C3"
+    )
+  ) +
+  theme_classic()+
+  geom_smooth(method='lm', formula= y~x,se=F)
+
+
+p3 <- ggplot(final) +
+  aes(x = balance, y = annual_salary, colour = gender) +
+  geom_point(shape = "circle", size = 1.5) +
+  scale_color_manual(
+    values = list(
+      F = "#F8766D",
+      M = "#FF61C3"
+    )
+  ) +
+  theme_classic()+
+  geom_smooth(method='lm', formula= y~x,se=F)
+
+p4 <- ggplot(final) +
+  aes(x = debit_count_in91days, y = annual_salary, colour = gender) +
+  geom_point(shape = "circle", size = 1.5) +
+  scale_color_manual(
+    values = list(
+      F = "#F8766D",
+      M = "#FF61C3"
+    )
+  ) +
+  theme_classic()+
+  geom_smooth(method='lm', formula= y~x,se=F)
+
+p1/p2 
+p3/p4
+```
+
+***From the visualizations above and correlation map, we can see the presence of some linear relationships between the variables hence we can try fit a simple linear model for the prediction of annual salaries of customers***
+
+```{r regression model, echo=TRUE}
+model1.lm <- lm(annual_salary ~ .-customer_id -salary_91days, final)
+summary(model1.lm)
+par(mfrow=c(2,2))
+plot(model1.lm)
+```
+
+***From the model summary and diagnostics plots above it is evident that the data is not enough to use for prediction we need more data points in order to get consistency in predictions. Although we can definitely see the assumptions of linear models are holding at some corrections but still we need more data for reliable predictions. ***
+
+***The model’s adjusted R^2 also shows 16% of variation in customers annual salary which is not enough. hence, it is risky to use this linear model to predict customer's income. More data is required to develop a more significant and reliable model.***
